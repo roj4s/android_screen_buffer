@@ -14,7 +14,7 @@ class ScreenOrientation:
     VERTICAL = 0
     HORIZONTAL = 1
 
-def get_device_shape():
+def get_device_screen_shape():
     wss = sp.check_output(['adb', 'shell', 'wm', 'size'])
     w = str(wss).split('x')[0]
     w = int(w[w.index(":") + 1:])
@@ -22,7 +22,8 @@ def get_device_shape():
     h = int(h[:h.index("\\n")])
     return (h, w)
 
-def frames_thread(queue_pool, evt, minicap_port=1313, ref_width=720, ref_height=1560, out_width_ratio=0.1,
+def frames_thread(queue_pool, evt, minicap_port=1313, ref_width=720,
+                  ref_height=1560, scale_ratio=0.1,
                   screen_orientation=ScreenOrientation.HORIZONTAL, bitrate=120000,
                   ):
 
@@ -35,7 +36,7 @@ def frames_thread(queue_pool, evt, minicap_port=1313, ref_width=720, ref_height=
         ref_width = ref_height
         ref_height = t
 
-    out_with = int(ref_width * out_width_ratio)
+    out_with = int(ref_width * scale_ratio)
     screen_aspect = ref_height/ref_width
     out_height = int(out_with * screen_aspect)
 
@@ -138,7 +139,7 @@ if __name__ == "__main__":
                          'screen_orientation': ScreenOrientation.HORIZONTAL,
                              'ref_width': args['reference_width'],
                              'ref_height': args['reference_height'],
-                             'out_width_ratio': args['output_ratio'],
+                             'scale_ratio': args['output_ratio'],
                              }).start()
     q = queue_pool[0]
     while True:
