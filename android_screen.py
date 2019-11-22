@@ -3,15 +3,31 @@ import socket
 import cv2
 import numpy as np
 import threading
+from threading import Event
 from queue import Queue
+import sys
+import argparse as ap
 
-client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client_socket.connect(('localhost', 1313))
+
+class ScreenOrientation:
+    VERTICAL = 0
+    HORIZONTAL = 1
 
 
-q = Queue()
+def frames_thread(queue_pool, evt, ref_width=720, ref_height=1560, out_width_ratio=0.1,
+                  screen_orientation=ScreenOrientation.VERTICAL, bitrate=120000,
+                  ):
 
-def frames_thread(q):
+    if screen_orientation == ScreenOrientation.VERTICAL:
+        print("Using vertical orientation")
+        t = ref_width
+        ref_width = ref_height
+        ref_height = t
+
+    out_with = int(ref_width * out_width_ratio)
+    screen_aspect = ref_height/ref_width
+    out_height = int(out_with * screen_aspect)
+
     flag = False
     readBannerBytes = 0
     bannerLength = 2
@@ -29,17 +45,16 @@ def frames_thread(q):
         'orientation': 0,
         'quirks': 0
     }
-    while True:
-        #chunk = client_socket.recv(4084)
-        chunk = client_socket.recv(12000)
+    while not evt.is_set():
+        chunk = client_socket.recv(bitrate)
         if len(chunk) == 0:
             continue
 
-        print(('chunk(length=%d)' % len(chunk)))
+        #print(('chunk(length=%d)' % len(chunk)))
         cursor = 0
         while cursor < len(chunk):
             if (readBannerBytes < bannerLength):
-                print((readBannerBytes, "---", bannerLength))
+                #print((readBannerBytes, "---", bannerLength))
                 if readBannerBytes == 0:
                     banner['version'] = int(hex(chunk[cursor]), 16)
                 elif readBannerBytes == 1:
@@ -52,49 +67,75 @@ def frames_thread(q):
                 cursor += 1
                 readBannerBytes += 1
 
-                if readBannerBytes == bannerLength:
-                    print(('banner', banner))
+                #if readBannerBytes == bannerLength:
+                    #print(('banner', banner))
 
             elif readFrameBytes < 4:
                 frameBodyLengthRemaining += (int(hex(chunk[cursor]), 16) << (readFrameBytes * 8))
                 cursor += 1
                 readFrameBytes += 1
-                print(('headerbyte%d(val=%d)' % (readFrameBytes, frameBodyLengthRemaining)))
+                #print(('headerbyte%d(val=%d)' % (readFrameBytes, frameBodyLengthRemaining)))
 
             else:
                 # if this chunk has data of next image
                 if len(chunk) - cursor >= frameBodyLengthRemaining:
-                    print(('bodyfin(len=%d,cursor=%d)' % (frameBodyLengthRemaining, cursor)))
+                    #print(('bodyfin(len=%d,cursor=%d)' % (frameBodyLengthRemaining, cursor)))
                     frameBody = frameBody + chunk[cursor:(cursor + frameBodyLengthRemaining)]
                     if hex(frameBody[0]) != '0xff' or hex(frameBody[1]) != '0xd8':
-                        print(("Frame body does not strt with JPEG header", frameBody[0], frameBody[1]))
+                        #print(("Frame body does not strt with JPEG header", frameBody[0], frameBody[1]))
                         exit()
                     img = np.array(bytearray(frameBody))
                     img = cv2.imdecode(img, 1)
-                    #img = cv2.resize(img, (432, 768))
-                    #img = cv2.resize(img, (224, 394))
-                    w = 200
-                    img = cv2.resize(img, (int(w*(1560/720)), w))
-                    q.put(img)
-                    
+                    img = cv2.resize(img, (out_height, out_with))
+                    for q in queue_pool:
+                        q.put(img)
+
                     cursor += frameBodyLengthRemaining
                     frameBodyLengthRemaining = 0
                     readFrameBytes = 0
                     frameBody = ''
                 else:
                     # else this chunk is still for the current image
-                    print(('body(len=%d)' % (len(chunk) - cursor), 'remaining = %d' % frameBodyLengthRemaining))
+                    #print(('body(len=%d)' % (len(chunk) - cursor), 'remaining = %d' % frameBodyLengthRemaining))
                     frameBody = bytes(list(frameBody) + list(chunk[cursor:len(chunk)]))
                     frameBodyLengthRemaining -= (len(chunk) - cursor)
                     readFrameBytes += len(chunk) - cursor
                     cursor = len(chunk)
 
-threading.Thread(target=frames_thread, args=(q,)).start()
-while True:
-    img = q.get()
-    cv2.imshow('capture', img)
-    if cv2.waitKey(25) & 0xFF == ord('q'):
-        cv2.destroyAllWindows()
-        exit(0)
+if __name__ == "__main__":
 
-#tryRead()
+    par = ap.ArgumentParser(add_help=True)
+    par.add_argument('-p', '--port', help="Minicap port", default=1313)
+    par.add_argument('-w', '--reference-width', help="Device width",
+                     default=720)
+    par.add_argument('-j', '--reference-height', help="Device height",
+                     default=1560)
+    par.add_argument('-s', '--width', help="Output width",
+                     default=200)
+    par.add_argument('-r', '--output-ratio', help="Output ratio, used to" \
+                     " estimate output height from specified output width",
+                     default=0.1, type=float)
+
+    args = vars(par.parse_args())
+
+
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect(('localhost', args['port']))
+
+    queue_pool = [Queue(), Queue()]
+    evt = Event()
+    threading.Thread(target=frames_thread, args=(queue_pool, evt),
+                     kwargs={'screen_orientation': ScreenOrientation.HORIZONTAL,
+                             'ref_width': args['reference_width'],
+                             'ref_height': args['reference_height'],
+                             'out_width_ratio': args['output_ratio'],
+                             }).start()
+    q = queue_pool[0]
+    while True:
+        img = q.get()
+        cv2.imshow('capture', img)
+        if cv2.waitKey(25) & 0xFF == ord('q'):
+            cv2.destroyAllWindows()
+            evt.set()
+            exit(0)
+            break
