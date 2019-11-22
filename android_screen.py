@@ -7,6 +7,7 @@ from threading import Event
 from queue import Queue
 import sys
 import argparse as ap
+import subprocess as sp
 
 
 class ScreenOrientation:
