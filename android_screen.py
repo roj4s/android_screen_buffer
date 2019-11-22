@@ -173,6 +173,8 @@ if __name__ == "__main__":
                      default=1560)
     par.add_argument('-s', '--width', help="Output width",
                      default=200)
+    par.add_argument('-b', '--bitrate', help="Stream bitrate",
+                     default=120000, type=int)
     par.add_argument('-r', '--output-ratio', help="Output ratio, used to" \
                      " estimate output height from specified output width",
                      default=0.1, type=float)
@@ -182,7 +184,8 @@ if __name__ == "__main__":
     asb = AndroidScreenBuffer(minicap_port=args['port'],
                               device_width=args['reference_width'],
                               device_height=args['reference_height'],
-                              scale_ratio=args['output_ratio']
+                              scale_ratio=args['output_ratio'],
+                              #bitrate=args['bitrate']
                               )
 
     asb.run()
