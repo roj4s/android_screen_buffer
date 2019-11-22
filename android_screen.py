@@ -14,9 +14,12 @@ class ScreenOrientation:
     HORIZONTAL = 1
 
 
-def frames_thread(queue_pool, evt, ref_width=720, ref_height=1560, out_width_ratio=0.1,
-                  screen_orientation=ScreenOrientation.VERTICAL, bitrate=120000,
+def frames_thread(queue_pool, evt, minicap_port=1313, ref_width=720, ref_height=1560, out_width_ratio=0.1,
+                  screen_orientation=ScreenOrientation.HORIZONTAL, bitrate=120000,
                   ):
+
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect(('localhost', minicap_port))
 
     if screen_orientation == ScreenOrientation.VERTICAL:
         print("Using vertical orientation")
@@ -119,13 +122,12 @@ if __name__ == "__main__":
     args = vars(par.parse_args())
 
 
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect(('localhost', args['port']))
-
     queue_pool = [Queue(), Queue()]
     evt = Event()
     threading.Thread(target=frames_thread, args=(queue_pool, evt),
-                     kwargs={'screen_orientation': ScreenOrientation.HORIZONTAL,
+                     kwargs={
+                         'minicap_port': args['port'],
+                         'screen_orientation': ScreenOrientation.HORIZONTAL,
                              'ref_width': args['reference_width'],
                              'ref_height': args['reference_height'],
                              'out_width_ratio': args['output_ratio'],
