@@ -185,7 +185,7 @@ if __name__ == "__main__":
                               device_width=args['reference_width'],
                               device_height=args['reference_height'],
                               scale_ratio=args['output_ratio'],
-                              #bitrate=args['bitrate']
+                              bitrate=args['bitrate']
                               )
 
     asb.run()
