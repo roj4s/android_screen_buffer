@@ -13,6 +13,13 @@ class ScreenOrientation:
     VERTICAL = 0
     HORIZONTAL = 1
 
+def get_device_shape():
+    wss = sp.check_output(['adb', 'shell', 'wm', 'size'])
+    w = str(wss).split('x')[0]
+    w = int(w[w.index(":") + 1:])
+    h = str(wss).split('x')[1]
+    h = int(h[:h.index("\\n")])
+    return (h, w)
 
 def frames_thread(queue_pool, evt, minicap_port=1313, ref_width=720, ref_height=1560, out_width_ratio=0.1,
                   screen_orientation=ScreenOrientation.HORIZONTAL, bitrate=120000,
