@@ -1,5 +1,5 @@
 import socket
-
+import time
 import cv2
 import numpy as np
 import threading
@@ -8,111 +8,160 @@ from queue import Queue
 import sys
 import argparse as ap
 import subprocess as sp
+from collections import OrderedDict
 
 
 class ScreenOrientation:
     VERTICAL = 0
     HORIZONTAL = 1
 
-def get_device_screen_shape():
-    wss = sp.check_output(['adb', 'shell', 'wm', 'size'])
-    w = str(wss).split('x')[0]
-    w = int(w[w.index(":") + 1:])
-    h = str(wss).split('x')[1]
-    h = int(h[:h.index("\\n")])
-    return (h, w)
+class AndroidScreenBuffer:
 
-def frames_thread(queue_pool, evt, minicap_port=1313, ref_width=720,
-                  ref_height=1560, scale_ratio=0.1,
-                  screen_orientation=ScreenOrientation.HORIZONTAL, bitrate=120000,
-                  ):
+    def __init__(self, minicap_port=1313, device_width=720, device_height=1560,
+                buffer_size=10, scale_ratio=0.1,
+                      screen_orientation=ScreenOrientation.HORIZONTAL,
+                bitrate=120000):
 
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect(('localhost', minicap_port))
+        self.stop_evt = Event()
+        self.buffer = OrderedDict()
+        self.buffer_size = buffer_size
+        self.queue = Queue()
+        self.device_width = device_width
+        self.device_height = device_height
+        self.scale_ratio = scale_ratio
+        self.bitrate = bitrate
+        self.screen_orientation = screen_orientation
+        self.minicap_port = minicap_port
 
-    if screen_orientation == ScreenOrientation.VERTICAL:
-        print("Using vertical orientation")
-        t = ref_width
-        ref_width = ref_height
-        ref_height = t
+    def run(self):
+        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.client_socket.connect(('localhost', self.minicap_port))
 
-    out_with = int(ref_width * scale_ratio)
-    screen_aspect = ref_height/ref_width
-    out_height = int(out_with * screen_aspect)
+        threading.Thread(target=self.frames_thread).start()
+        threading.Thread(target=self.buffer_thread).start()
 
-    flag = False
-    readBannerBytes = 0
-    bannerLength = 2
-    readFrameBytes = 0
-    frameBodyLengthRemaining = 0
-    frameBody = ''
-    banner = {
-        'version': 0,
-        'length': 0,
-        'pid': 0,
-        'realWidth': 0,
-        'realHeight': 0,
-        'virtualWidth': 0,
-        'virtualHeight': 0,
-        'orientation': 0,
-        'quirks': 0
-    }
-    while not evt.is_set():
-        chunk = client_socket.recv(bitrate)
-        if len(chunk) == 0:
-            continue
+    def get_device_screen_shape(self):
+        wss = sp.check_output(['adb', 'shell', 'wm', 'size'])
+        w = str(wss).split('x')[0]
+        w = int(w[w.index(":") + 1:])
+        h = str(wss).split('x')[1]
+        h = int(h[:h.index("\\n")])
+        return (h, w)
 
-        #print(('chunk(length=%d)' % len(chunk)))
-        cursor = 0
-        while cursor < len(chunk):
-            if (readBannerBytes < bannerLength):
-                #print((readBannerBytes, "---", bannerLength))
-                if readBannerBytes == 0:
-                    banner['version'] = int(hex(chunk[cursor]), 16)
-                elif readBannerBytes == 1:
-                    banner['length'] = bannerLength = int(hex(chunk[cursor]), 16)
-                elif readBannerBytes >= 2 and readBannerBytes <= 5:
-                    banner['pid'] = int(hex(chunk[cursor]), 16)
-                elif readBannerBytes == 23:
-                    banner['quirks'] = int(hex(chunk[cursor]), 16)
+    def buffer_thread(self):
+        while not self.stop_evt.is_set():
+            t = time.time()
+            frame = self.queue.get()
+            self.buffer[str(t)] = frame
+            while len(self.buffer) > self.buffer_size:
+                del self.buffer[next(iter(self.buffer))]
 
-                cursor += 1
-                readBannerBytes += 1
+    def stop(self):
+        self.stop_evt.set()
+        del self.client_socket
 
-                #if readBannerBytes == bannerLength:
-                    #print(('banner', banner))
+    def get_timelapse_frame(self, timelapse):
 
-            elif readFrameBytes < 4:
-                frameBodyLengthRemaining += (int(hex(chunk[cursor]), 16) << (readFrameBytes * 8))
-                cursor += 1
-                readFrameBytes += 1
-                #print(('headerbyte%d(val=%d)' % (readFrameBytes, frameBodyLengthRemaining)))
+        if not len(self.buffer):
+            return
 
-            else:
-                # if this chunk has data of next image
-                if len(chunk) - cursor >= frameBodyLengthRemaining:
-                    #print(('bodyfin(len=%d,cursor=%d)' % (frameBodyLengthRemaining, cursor)))
-                    frameBody = frameBody + chunk[cursor:(cursor + frameBodyLengthRemaining)]
-                    if hex(frameBody[0]) != '0xff' or hex(frameBody[1]) != '0xd8':
-                        #print(("Frame body does not strt with JPEG header", frameBody[0], frameBody[1]))
-                        exit()
-                    img = np.array(bytearray(frameBody))
-                    img = cv2.imdecode(img, 1)
-                    img = cv2.resize(img, (out_height, out_with))
-                    for q in queue_pool:
-                        q.put(img)
+        k = sorted([float(i) for i in self.buffer.keys()])
+        for tt in k:
+            if tt > float(timelapse):
+                return self.buffer[str(tt)]
 
-                    cursor += frameBodyLengthRemaining
-                    frameBodyLengthRemaining = 0
-                    readFrameBytes = 0
-                    frameBody = ''
+    def get_last_frame(self):
+        if not len(self.buffer):
+            return
+
+        return self.buffer[next(reversed(self.buffer))]
+
+    def frames_thread(self):
+        ref_width = self.device_width
+        ref_height = self.device_height
+
+        if self.screen_orientation == ScreenOrientation.VERTICAL:
+            #print("Using vertical orientation")
+            t = ref_width
+            ref_width = ref_height
+            ref_height = t
+
+        out_with = int(ref_width * self.scale_ratio)
+        screen_aspect = ref_height/ref_width
+        out_height = int(out_with * screen_aspect)
+
+        flag = False
+        readBannerBytes = 0
+        bannerLength = 2
+        readFrameBytes = 0
+        frameBodyLengthRemaining = 0
+        frameBody = ''
+        banner = {
+            'version': 0,
+            'length': 0,
+            'pid': 0,
+            'realWidth': 0,
+            'realHeight': 0,
+            'virtualWidth': 0,
+            'virtualHeight': 0,
+            'orientation': 0,
+            'quirks': 0
+        }
+        while not self.stop_evt.is_set():
+            chunk = self.client_socket.recv(self.bitrate)
+            if len(chunk) == 0:
+                continue
+
+            #print(('chunk(length=%d)' % len(chunk)))
+            cursor = 0
+            while cursor < len(chunk):
+                if (readBannerBytes < bannerLength):
+                    #print((readBannerBytes, "---", bannerLength))
+                    if readBannerBytes == 0:
+                        banner['version'] = int(hex(chunk[cursor]), 16)
+                    elif readBannerBytes == 1:
+                        banner['length'] = bannerLength = int(hex(chunk[cursor]), 16)
+                    elif readBannerBytes >= 2 and readBannerBytes <= 5:
+                        banner['pid'] = int(hex(chunk[cursor]), 16)
+                    elif readBannerBytes == 23:
+                        banner['quirks'] = int(hex(chunk[cursor]), 16)
+
+                    cursor += 1
+                    readBannerBytes += 1
+
+                    #if readBannerBytes == bannerLength:
+                        #print(('banner', banner))
+
+                elif readFrameBytes < 4:
+                    frameBodyLengthRemaining += (int(hex(chunk[cursor]), 16) << (readFrameBytes * 8))
+                    cursor += 1
+                    readFrameBytes += 1
+                    #print(('headerbyte%d(val=%d)' % (readFrameBytes, frameBodyLengthRemaining)))
+
                 else:
-                    # else this chunk is still for the current image
-                    #print(('body(len=%d)' % (len(chunk) - cursor), 'remaining = %d' % frameBodyLengthRemaining))
-                    frameBody = bytes(list(frameBody) + list(chunk[cursor:len(chunk)]))
-                    frameBodyLengthRemaining -= (len(chunk) - cursor)
-                    readFrameBytes += len(chunk) - cursor
-                    cursor = len(chunk)
+                    # if this chunk has data of next image
+                    if len(chunk) - cursor >= frameBodyLengthRemaining:
+                        #print(('bodyfin(len=%d,cursor=%d)' % (frameBodyLengthRemaining, cursor)))
+                        frameBody = frameBody + chunk[cursor:(cursor + frameBodyLengthRemaining)]
+                        if hex(frameBody[0]) != '0xff' or hex(frameBody[1]) != '0xd8':
+                            #print(("Frame body does not strt with JPEG header", frameBody[0], frameBody[1]))
+                            exit()
+                        img = np.array(bytearray(frameBody))
+                        img = cv2.imdecode(img, 1)
+                        img = cv2.resize(img, (out_height, out_with))
+                        self.queue.put(img)
+
+                        cursor += frameBodyLengthRemaining
+                        frameBodyLengthRemaining = 0
+                        readFrameBytes = 0
+                        frameBody = ''
+                    else:
+                        # else this chunk is still for the current image
+                        #print(('body(len=%d)' % (len(chunk) - cursor), 'remaining = %d' % frameBodyLengthRemaining))
+                        frameBody = bytes(list(frameBody) + list(chunk[cursor:len(chunk)]))
+                        frameBodyLengthRemaining -= (len(chunk) - cursor)
+                        readFrameBytes += len(chunk) - cursor
+                        cursor = len(chunk)
 
 if __name__ == "__main__":
 
@@ -130,23 +179,20 @@ if __name__ == "__main__":
 
     args = vars(par.parse_args())
 
+    asb = AndroidScreenBuffer(minicap_port=args['port'],
+                              device_width=args['reference_width'],
+                              device_height=args['reference_height'],
+                              scale_ratio=args['output_ratio']
+                              )
 
-    queue_pool = [Queue(), Queue()]
-    evt = Event()
-    threading.Thread(target=frames_thread, args=(queue_pool, evt),
-                     kwargs={
-                         'minicap_port': args['port'],
-                         'screen_orientation': ScreenOrientation.HORIZONTAL,
-                             'ref_width': args['reference_width'],
-                             'ref_height': args['reference_height'],
-                             'scale_ratio': args['output_ratio'],
-                             }).start()
-    q = queue_pool[0]
+    asb.run()
+
     while True:
-        img = q.get()
-        cv2.imshow('capture', img)
+        img = asb.get_last_frame()
+        if img is not None:
+            cv2.imshow('capture', img)
         if cv2.waitKey(25) & 0xFF == ord('q'):
             cv2.destroyAllWindows()
-            evt.set()
+            asb.stop()
             exit(0)
             break
