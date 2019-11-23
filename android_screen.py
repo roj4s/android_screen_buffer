@@ -27,7 +27,6 @@ class AndroidScreenBuffer:
         self.buffer_size = buffer_size
         self.queue = Queue()
         self.device_height, self.device_width = self.get_device_screen_shape()
-        self.device_height = device_height
         self.scale_ratio = scale_ratio
         self.bitrate = bitrate
         self.screen_orientation = screen_orientation
