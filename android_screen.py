@@ -62,11 +62,12 @@ class AndroidScreenBuffer:
     def get_timelapse_frame(self, timelapse):
 
         if not len(self.buffer):
+            print("Empty buffer")
             return
 
-        k = sorted([float(i) for i in self.buffer.keys()])
+        k = list(self.buffer.keys())
         for tt in k:
-            if tt > float(timelapse):
+            if float(tt) >= float(timelapse):
                 return self.buffer[str(tt)]
 
     def get_last_frame(self):
