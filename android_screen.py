@@ -17,7 +17,7 @@ class ScreenOrientation:
 
 class AndroidScreenBuffer:
 
-    def __init__(self, minicap_port=1313, device_width=720, device_height=1560,
+    def __init__(self, minicap_port=1313,
                 buffer_size=10, scale_ratio=0.1,
                       screen_orientation=ScreenOrientation.HORIZONTAL,
                 bitrate=120000):
@@ -26,7 +26,7 @@ class AndroidScreenBuffer:
         self.buffer = OrderedDict()
         self.buffer_size = buffer_size
         self.queue = Queue()
-        self.device_width = device_width
+        self.device_height, self.device_width = self.get_device_screen_shape()
         self.device_height = device_height
         self.scale_ratio = scale_ratio
         self.bitrate = bitrate
@@ -167,12 +167,6 @@ if __name__ == "__main__":
 
     par = ap.ArgumentParser(add_help=True)
     par.add_argument('-p', '--port', help="Minicap port", default=1313)
-    par.add_argument('-w', '--reference-width', help="Device width",
-                     default=720)
-    par.add_argument('-j', '--reference-height', help="Device height",
-                     default=1560)
-    par.add_argument('-s', '--width', help="Output width",
-                     default=200)
     par.add_argument('-b', '--bitrate', help="Stream bitrate",
                      default=120000, type=int)
     par.add_argument('-r', '--output-ratio', help="Output ratio, used to" \
@@ -182,8 +176,6 @@ if __name__ == "__main__":
     args = vars(par.parse_args())
 
     asb = AndroidScreenBuffer(minicap_port=args['port'],
-                              device_width=args['reference_width'],
-                              device_height=args['reference_height'],
                               scale_ratio=args['output_ratio'],
                               bitrate=args['bitrate']
                               )
