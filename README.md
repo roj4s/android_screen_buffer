@@ -11,10 +11,10 @@ Python package for streaming Android device's screen frames. It might be usefull
 
     from asb import AndroidScreenBuffer
 
-    buf = AndroidScreenBuffer()
-    buf.run()
+    buff = AndroidScreenBuffer()
+    buff.run()
 
-    img = asb.get_last_frame()
+    img = buff.get_last_frame()
 
     if img is not None:
         # Use image as you would like
