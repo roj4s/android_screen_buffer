@@ -1,0 +1,4 @@
+#!/bin/bash
+
+adb forward tcp:1313 localabstract:minicap
+/opt/minicap/run.sh autosize
