@@ -13,6 +13,7 @@ setuptools.setup(
      author_email="rojas@icomp.ufam.edu.br",
      description="Python utility to capture android screen frames in real time and use with 3rd party libs like opencv.",
      long_description=long_description,
+     scripts=['scripts/asb'],
      long_description_content_type="text/markdown",
      url="https://github.com/roj4s/android_screen_buffer",
      packages=setuptools.find_packages(),
