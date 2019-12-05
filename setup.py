@@ -8,7 +8,7 @@ with open('requirements.txt', 'rt') as f:
 
 setuptools.setup(
      name='asb',
-     version='0.2',
+     version='0.3',
      author="Luis Rojas Aguilera",
      author_email="rojas@icomp.ufam.edu.br",
      description="Python utility to capture android screen frames in real time and use with 3rd party libs like opencv.",
